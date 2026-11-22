@@ -131,7 +131,7 @@ function ocr_(base64, mime) {
     .concat(Utilities.base64Decode(base64))
     .concat(Utilities.newBlob('\r\n--' + boundary + '--').getBytes());
   const up = UrlFetchApp.fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&ocrLanguage=zh-TW&fields=id',
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
     { method: 'post', contentType: 'multipart/related; boundary=' + boundary, payload: body,
       headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
   if (up.getResponseCode() !== 200) throw new Error('辨識失敗（上傳）：' + up.getContentText().slice(0, 200));
@@ -150,6 +150,15 @@ function ocr_(base64, mime) {
 /** 不會被呼叫；讓 Apps Script 在授權時加入雲端硬碟權限（OCR 需要） */
 function authorizeDrive_() {
   DriveApp.getRootFolder();
+  DriveApp.createFile('x', 'x');
+}
+
+/** 手動執行一次以授權 OCR 需要的權限（雲端硬碟、外部連線）；會建立一個暫存檔並立刻丟進垃圾桶 */
+function authorize() {
+  DriveApp.getRootFolder();
+  UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/about?fields=kind', { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+  DriveApp.createFile('authorize-tmp', 'x').setTrashed(true);
+  return 'ok';
 }
 
 function json_(obj) {
