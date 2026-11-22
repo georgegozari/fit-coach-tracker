@@ -609,12 +609,12 @@ function exportCSV() {
 
 /* ---------------- boot ---------------- */
 function readHashConfig() {
-  if (!location.hash.includes('api=')) return;
+  if (!/(api|key)=/.test(location.hash)) return;
   const p = new URLSearchParams(location.hash.slice(1));
-  if (p.get('api')) {
-    state.cfg = { api: p.get('api'), key: p.get('key') || '' };
-    saveJSON(LS_CFG, state.cfg);
-  }
+  if (p.get('api')) state.cfg.api = p.get('api');
+  if (p.get('key')) state.cfg.key = p.get('key');
+  saveJSON(LS_CFG, state.cfg);
+  if (!state.cfg.api) state.tab = 'settings';
   history.replaceState(null, '', location.pathname + location.search);
 }
 

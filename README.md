@@ -29,6 +29,7 @@ Google 試算表：Daily / Targets / InBody / Settings 四個工作表
 1. 打開資料用的 Google 試算表（已建立好的「Nash減肥App資料」，或自己新建一個）
 2. 上方選單 **擴充功能 → Apps Script**
 3. 把 `apps-script/Code.gs` 全部內容貼上，取代原本的程式碼，按儲存
+   - 也可以在 `Code.gs` 最上方填入 `PRESET_COACH_KEY` / `PRESET_TRAINEE_KEY` 自訂金鑰（填了就可以跳過第 4、5 步）
 4. 上方函式選單選 **`setup`** → 按 **執行**，第一次會要求授權（選自己的帳號 → 進階 → 前往（不安全）→ 允許）
 5. 打開下方 **執行記錄**，會看到「教練金鑰」和「學員金鑰」
 6. 右上角 **部署 → 新增部署作業**

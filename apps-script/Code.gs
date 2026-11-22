@@ -7,6 +7,12 @@
  *  3. 部署 → 新增部署作業 → 網頁應用程式（執行身分：我；存取權：所有人）
  */
 
+// 選填：獨立（非綁定）Apps Script 專案時填入資料試算表 ID
+const SPREADSHEET_ID = '';
+// 選填：預先指定金鑰（留白則由 setup() 隨機產生）
+const PRESET_COACH_KEY = '';
+const PRESET_TRAINEE_KEY = '';
+
 const SHEETS = {
   Daily:   ['date', 'weight', 'rhr', 'steps', 'cardio', 'interval', 'note', 'updatedAt'],
   Targets: ['from', 'kcal', 'carb', 'protein', 'fat', 'steps', 'cardioWeek', 'intervalWeek', 'note'],
@@ -17,8 +23,12 @@ const SHEETS = {
 // 學員可以寫入的表；Targets / Settings 只有教練能改
 const TRAINEE_WRITABLE = ['Daily', 'InBody'];
 
+function ss_() {
+  return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActive();
+}
+
 function setup() {
-  const ss = SpreadsheetApp.getActive();
+  const ss = ss_();
   Object.keys(SHEETS).forEach(function (name) {
     const cols = SHEETS[name];
     const sh = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -27,8 +37,8 @@ function setup() {
     sh.setFrozenRows(1);
   });
   const p = PropertiesService.getScriptProperties();
-  if (!p.getProperty('COACH_KEY')) p.setProperty('COACH_KEY', randomKey_());
-  if (!p.getProperty('TRAINEE_KEY')) p.setProperty('TRAINEE_KEY', randomKey_());
+  if (!p.getProperty('COACH_KEY')) p.setProperty('COACH_KEY', PRESET_COACH_KEY || randomKey_());
+  if (!p.getProperty('TRAINEE_KEY')) p.setProperty('TRAINEE_KEY', PRESET_TRAINEE_KEY || randomKey_());
   Logger.log('教練金鑰 COACH_KEY = ' + p.getProperty('COACH_KEY'));
   Logger.log('學員金鑰 TRAINEE_KEY = ' + p.getProperty('TRAINEE_KEY'));
 }
@@ -45,11 +55,19 @@ function randomKey_() {
   return Utilities.getUuid().replace(/-/g, '').slice(0, 16);
 }
 
+function keys_() {
+  const p = PropertiesService.getScriptProperties();
+  return {
+    coach: p.getProperty('COACH_KEY') || PRESET_COACH_KEY,
+    trainee: p.getProperty('TRAINEE_KEY') || PRESET_TRAINEE_KEY,
+  };
+}
+
 function roleOf_(key) {
   if (!key) return null;
-  const p = PropertiesService.getScriptProperties();
-  if (key === p.getProperty('COACH_KEY')) return 'coach';
-  if (key === p.getProperty('TRAINEE_KEY')) return 'trainee';
+  const k = keys_();
+  if (k.coach && key === k.coach) return 'coach';
+  if (k.trainee && key === k.trainee) return 'trainee';
   return null;
 }
 
@@ -87,7 +105,7 @@ function handle_(req) {
     }
 
     const out = { ok: true, role: role, data: readAll_() };
-    if (role === 'coach') out.traineeKey = PropertiesService.getScriptProperties().getProperty('TRAINEE_KEY');
+    if (role === 'coach') out.traineeKey = keys_().trainee;
     return json_(out);
   } catch (err) {
     return json_({ ok: false, error: String((err && err.message) || err) });
@@ -99,7 +117,7 @@ function json_(obj) {
 }
 
 function sheet_(name) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(name);
+  const sh = ss_().getSheetByName(name);
   if (!sh) throw new Error('找不到工作表 ' + name + '，請先執行 setup()');
   return sh;
 }
