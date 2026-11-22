@@ -210,3 +210,6 @@ th { color: var(--muted); font-weight: 600; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .empty { text-align: center; color: var(--muted); padding: 24px 0; }
 code { font-size: 12px; word-break: break-all; }
+
+.form-grid input.filled { background: var(--accent-soft); border-color: var(--accent); }
+label.btn { cursor: pointer; }

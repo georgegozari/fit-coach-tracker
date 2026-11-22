@@ -124,8 +124,10 @@ async function call(payload) {
     if (!j.ok) throw new Error(j.error || '伺服器錯誤');
     state.role = j.role;
     state.traineeKey = j.traineeKey || null;
-    state.data = j.data;
-    state.data.settings = state.data.settings || {};
+    if (j.data) {
+      state.data = j.data;
+      state.data.settings = state.data.settings || {};
+    }
     state.error = null;
     state.lastSync = new Date();
     persist();
@@ -428,6 +430,56 @@ function renderTrend(v) {
 }
 
 /* ---------------- InBody ---------------- */
+// 從 OCR 文字比對 InBody 欄位：找到標籤後，取標籤後第一個在合理範圍內的數字
+const INBODY_OCR = {
+  weight:   { re: /(?<!目標|除脂|標準|理想|去脂)體重(?!控制)|\bWeight\b(?!\s*Control)/gi, min: 25, max: 250 },
+  smm:      { re: /骨骼肌(?:重|量)?|Skeletal\s*Muscle\s*Mass|\bSMM\b/gi, min: 8, max: 80 },
+  fatMass:  { re: /體脂肪(?:重|量)|Body\s*Fat\s*Mass/gi, min: 1, max: 120 },
+  pbf:      { re: /體脂(?:肪)?率|Percent\s*Body\s*Fat|\bPBF\b/gi, min: 2, max: 70 },
+  visceral: { re: /內臟脂肪(?:等級|程度|指數)?|Visceral\s*Fat\s*Level/gi, min: 1, max: 30, int: true },
+  bmr:      { re: /基礎代謝(?:率|量)?|Basal\s*Metabolic\s*Rate|\bBMR\b/gi, min: 700, max: 4000 },
+  score:    { re: /InBody\s*(?:分數|評分|Score)/gi, min: 20, max: 100 },
+  waist:    { re: /腰圍|Waist\s*Circumference/gi, min: 40, max: 200 },
+};
+function parseInbody(text) {
+  const t = String(text || '').replace(/[，,]/g, '.').replace(/[：:]/g, ' ').replace(/\*\*/g, '');
+  const out = {};
+  for (const [k, cfg] of Object.entries(INBODY_OCR)) {
+    cfg.re.lastIndex = 0;
+    let m;
+    while (!(k in out) && (m = cfg.re.exec(t))) {
+      const after = t.slice(m.index + m[0].length, m.index + m[0].length + 40).replace(/\([^)]{0,12}\)/g, ' ');
+      const n = after.match(/\d+(?:\.\d+)?/);
+      if (!n) continue;
+      const v = Number(n[0]);
+      if (v >= cfg.min && v <= cfg.max && (!cfg.int || Number.isInteger(v))) out[k] = v;
+    }
+  }
+  if (!('score' in out)) {
+    const m = t.match(/(\d{2,3})\s*\/\s*100/);
+    if (m && +m[1] >= 20 && +m[1] <= 100) out.score = +m[1];
+  }
+  const d = t.match(/(20\d{2})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+  if (d) out.date = d[1] + '-' + pad(d[2]) + '-' + pad(d[3]);
+  return out;
+}
+
+function resizeImage(file, max = 2000) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const s = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL('image/jpeg', 0.88).split(',')[1]);
+    };
+    img.onerror = () => reject(new Error('無法讀取這張照片'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 function renderInbody(v) {
   const list = [...state.data.inbody].reverse();
   const latest = list[0], prevOne = list[1];
@@ -444,6 +496,9 @@ function renderInbody(v) {
     </div></div>` : ''}
     <div class="card">
       <h2>新增 / 修改 InBody</h2>
+      <label class="btn secondary" style="text-align:center;margin-bottom:6px">📷 拍照／選照片自動帶入
+        <input type="file" id="ib-photo" accept="image/*" hidden></label>
+      <p class="hint" id="ib-ocr-msg" style="margin:0 0 12px">拍整張報告、光線充足、不要反光，辨識會比較準。帶入後請核對數字再儲存。</p>
       <div class="form-grid">
         <div class="span2"><label>測量日期<input type="date" id="ib-date" value="${todayStr()}" max="${todayStr()}"></label></div>
         ${INBODY_FIELDS.map(f => `<div><label>${f.label}${f.unit ? '（' + f.unit + '）' : ''}<input id="ib-${f.k}" type="text" inputmode="decimal" autocomplete="off"></label></div>`).join('')}
@@ -465,6 +520,30 @@ function renderInbody(v) {
     $('#ib-note').value = r.note || '';
   };
   $('#ib-date').onchange = (e) => fill(e.target.value);
+  $('#ib-photo').onchange = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const msg = $('#ib-ocr-msg');
+    if (!state.cfg.api) { msg.textContent = '本機模式無法辨識照片，請先在「設定」連線'; return; }
+    msg.textContent = '辨識中…（約 5–15 秒）';
+    $$('.filled').forEach(i => i.classList.toggle('filled', false));
+    try {
+      const image = await resizeImage(file);
+      const j = await call({ action: 'ocr', image, mime: 'image/jpeg' });
+      const r = parseInbody(j.text);
+      const got = INBODY_FIELDS.filter(f => r[f.k] !== undefined);
+      if (r.date && r.date <= todayStr()) { $('#ib-date').value = r.date; $('#ib-date').classList.add('filled'); }
+      got.forEach(f => { const i = $('#ib-' + f.k); i.value = r[f.k]; i.classList.add('filled'); });
+      const miss = INBODY_FIELDS.filter(f => r[f.k] === undefined && f.k !== 'waist').map(f => f.label);
+      msg.innerHTML = got.length
+        ? `已帶入 ${got.length} 項（標色欄位），請核對後按儲存。${miss.length ? '沒讀到：' + esc(miss.join('、')) + '，請手動補上。' : ''}`
+        : '沒有讀到數字，請換一張更清楚的照片，或手動輸入。';
+      msg.insertAdjacentHTML('beforeend', `<details style="margin-top:6px"><summary>查看辨識出的原始文字</summary><pre style="white-space:pre-wrap;font-size:12px">${esc(j.text)}</pre></details>`);
+    } catch (err) {
+      msg.textContent = '辨識失敗：' + err.message;
+    }
+  };
   $$('[data-edit]').forEach(b => b.onclick = () => { fill(b.dataset.edit); window.scrollTo({ top: 0, behavior: 'smooth' }); });
   $$('[data-del]').forEach(b => b.onclick = async () => {
     if (!confirm('刪除 ' + b.dataset.del + ' 的 InBody 紀錄？')) return;

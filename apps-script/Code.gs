@@ -87,6 +87,7 @@ function handle_(req) {
     if (!role) return json_({ ok: false, error: '金鑰錯誤，請確認連結是否正確' });
 
     const action = req.action || 'all';
+    if (action === 'ocr') return json_({ ok: true, role: role, text: ocr_(req.image, req.mime) });
     if (action !== 'all') {
       const sheet = req.sheet;
       if (!SHEETS[sheet]) throw new Error('未知的資料表：' + sheet);
@@ -110,6 +111,45 @@ function handle_(req) {
   } catch (err) {
     return json_({ ok: false, error: String((err && err.message) || err) });
   }
+}
+
+/**
+ * 照片文字辨識：把圖片上傳到雲端硬碟轉成 Google 文件（Google 內建 OCR），
+ * 匯出純文字後立刻刪除暫存檔。只回傳文字，欄位比對在前端做。
+ */
+function ocr_(base64, mime) {
+  if (!base64) throw new Error('沒有收到照片');
+  if (base64.length > 12 * 1024 * 1024) throw new Error('照片太大，請換一張');
+  mime = /^image\/(jpeg|png|webp|gif)$/.test(mime || '') ? mime : 'image/jpeg';
+  const token = ScriptApp.getOAuthToken();
+  const boundary = 'b' + Utilities.getUuid().replace(/-/g, '');
+  const meta = { name: 'inbody-ocr-tmp-' + Date.now(), mimeType: 'application/vnd.google-apps.document' };
+  const body = Utilities.newBlob(
+    '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(meta) +
+    '\r\n--' + boundary + '\r\nContent-Type: ' + mime + '\r\n\r\n'
+  ).getBytes()
+    .concat(Utilities.base64Decode(base64))
+    .concat(Utilities.newBlob('\r\n--' + boundary + '--').getBytes());
+  const up = UrlFetchApp.fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&ocrLanguage=zh-TW&fields=id',
+    { method: 'post', contentType: 'multipart/related; boundary=' + boundary, payload: body,
+      headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
+  if (up.getResponseCode() !== 200) throw new Error('辨識失敗（上傳）：' + up.getContentText().slice(0, 200));
+  const id = JSON.parse(up.getContentText()).id;
+  try {
+    const ex = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id + '/export?mimeType=text/plain',
+      { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
+    if (ex.getResponseCode() !== 200) throw new Error('辨識失敗（讀取）：' + ex.getContentText().slice(0, 200));
+    return ex.getContentText();
+  } finally {
+    UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id,
+      { method: 'delete', headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
+  }
+}
+
+/** 不會被呼叫；讓 Apps Script 在授權時加入雲端硬碟權限（OCR 需要） */
+function authorizeDrive_() {
+  DriveApp.getRootFolder();
 }
 
 function json_(obj) {
