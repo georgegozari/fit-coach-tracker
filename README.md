@@ -42,6 +42,23 @@ Google 試算表：Daily / Targets / InBody / Settings 四個工作表
 8. 在設定頁按 **複製學員連結**，傳給學員。學員打開後會自動連線，再用瀏覽器的「加入主畫面」即可
 
 > 之後如果修改了 `Code.gs`，要到 **部署 → 管理部署作業 → 編輯 → 版本選「新版本」** 才會生效（網址不變）。
+> 設定好下面的「自動部署」後，只要把 `apps-script/` 的修改推到 `main`，GitHub Actions 就會自動完成這一步。
+>
+> 如果新增的程式需要新的 Google 權限，還是要在 Apps Script 編輯器手動執行一次 `authorize`，在跳出的視窗允許權限。
+
+### 自動部署（GitHub Actions + clasp，選用）
+
+`.github/workflows/deploy-apps-script.yml` 會在 `apps-script/` 有變動並推到 `main` 時，自動 `clasp push` 並更新既有部署（網址不變）。只要設定一次：
+
+1. 到 <https://script.google.com/home/usersettings> 開啟 **Google Apps Script API**
+2. 在電腦安裝 Node.js 後執行 `npx @google/clasp@2.4.2 login`，用擁有試算表的 Google 帳號登入
+3. 在 repo 的 **Settings → Secrets and variables → Actions** 新增三個 secret：
+   - `CLASPRC_JSON`：`~/.clasprc.json` 的完整內容（可用 `gh secret set CLASPRC_JSON < ~/.clasprc.json`）
+   - `SCRIPT_ID`：Apps Script **專案設定 → 指令碼 ID**
+   - `DEPLOYMENT_ID`：**部署 → 管理部署作業** 裡網頁應用程式的部署 ID
+4. 之後改 `apps-script/` 推到 `main` 即自動部署；也可以在 Actions 頁手動執行 **Deploy Apps Script**
+
+> 注意：自動部署會用 repo 裡的程式覆蓋線上版本，直接在 Apps Script 編輯器做的修改要記得同步回 repo。
 >
 > 照片辨識會用到雲端硬碟權限：更新到有拍照功能的版本後，第一次部署時 Google 會再要求授權一次。暫存的辨識檔案會立即刪除。
 >

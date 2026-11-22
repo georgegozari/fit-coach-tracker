@@ -1,0 +1,56 @@
+# 推送到 main 且 apps-script/ 有變動時，自動把程式推上 Apps Script 並更新既有的網頁應用程式部署（網址不變）。
+# 需要的 GitHub Secrets（Settings → Secrets and variables → Actions）：
+#   CLASPRC_JSON   本機執行 `clasp login` 後 ~/.clasprc.json 的完整內容
+#   SCRIPT_ID      Apps Script 專案 ID（專案設定 → 指令碼 ID）
+#   DEPLOYMENT_ID  網頁應用程式的部署 ID（部署 → 管理部署作業）
+name: Deploy Apps Script
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps-script/**']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-apps-script
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp@2.4.2
+
+      - name: Write clasp credentials and project config
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ] || [ -z "$SCRIPT_ID" ]; then
+            echo "::error::缺少 CLASPRC_JSON 或 SCRIPT_ID secret"; exit 1
+          fi
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > apps-script/.clasp.json
+
+      - name: Push code to Apps Script
+        working-directory: apps-script
+        run: clasp push --force
+
+      - name: Update web app deployment (new version, same URL)
+        working-directory: apps-script
+        env:
+          DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
+        run: |
+          if [ -z "$DEPLOYMENT_ID" ]; then echo "::error::缺少 DEPLOYMENT_ID secret"; exit 1; fi
+          clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "GitHub ${GITHUB_SHA::7}"
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f ~/.clasprc.json apps-script/.clasp.json
