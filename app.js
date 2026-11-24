@@ -578,7 +578,7 @@ function renderSettings(v) {
   v.innerHTML = `
     <div class="card">
       <h2>連線</h2>
-      <div class="full"><label>Apps Script 網址<input id="cfg-api" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(state.cfg.api || '')}"></label></div>
+      <div class="full"><label>Apps Script 網址<input id="cfg-api" type="url" placeholder="貼上 /exec 網址，或整個分享連結" value="${esc(state.cfg.api || '')}"></label></div>
       <div class="full"><label>金鑰<input id="cfg-key" type="text" autocomplete="off" value="${esc(state.cfg.key || '')}"></label></div>
       <div class="row"><button class="btn" id="cfg-save">連線並同步</button></div>
       <p class="hint">${state.cfg.api ? `目前身分：<b>${state.role === 'coach' ? '教練（可修改目標）' : state.role === 'trainee' ? '學員' : '未知'}</b>` : '留白 = 本機模式（資料只存在這台裝置）。設定步驟見 GitHub 上的 README。'}</p>
@@ -630,10 +630,19 @@ function renderSettings(v) {
     </div>`;
 
   $('#cfg-save').onclick = async () => {
-    state.cfg = { api: $('#cfg-api').value.trim(), key: $('#cfg-key').value.trim() };
+    const local = state.cfg.api ? null : JSON.parse(JSON.stringify(state.data));
+    let api = $('#cfg-api').value.trim(), key = $('#cfg-key').value.trim();
+    const m = api.match(/#(.*(?:api|key)=.*)$/);
+    if (m) { const p = new URLSearchParams(m[1]); api = p.get('api') || ''; key = p.get('key') || key; }
+    state.cfg = { api, key };
     saveJSON(LS_CFG, state.cfg);
+    setHashConfig();
     if (!state.cfg.api) { state.error = null; render(); toast('已切換為本機模式'); return; }
-    try { await call({ action: 'all' }); toast('連線成功'); } catch (e) { toast('連線失敗：' + e.message); }
+    try {
+      await call({ action: 'all' });
+      const n = await uploadLocal(local);
+      toast(n ? `連線成功，已補傳 ${n} 筆本機資料` : '連線成功');
+    } catch (e) { toast('連線失敗：' + e.message); }
     render();
   };
   const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast('已複製'); } catch (e) { prompt('複製以下連結', text); } };
@@ -694,14 +703,42 @@ function readHashConfig() {
   if (p.get('key')) state.cfg.key = p.get('key');
   saveJSON(LS_CFG, state.cfg);
   if (!state.cfg.api) state.tab = 'settings';
-  history.replaceState(null, '', location.pathname + location.search);
+  // 網址保留連線設定：iPhone「加入主畫面」會記住目前網址，主畫面 App 的儲存空間和 Safari 分開
 }
 
+function setHashConfig() {
+  const h = state.cfg.api ? '#api=' + encodeURIComponent(state.cfg.api) + '&key=' + encodeURIComponent(state.cfg.key || '') : '';
+  history.replaceState(null, '', location.pathname + location.search + h);
+}
+
+/* 從本機模式改成連線時，把本機有、試算表沒有的每日回報 / InBody 補傳上去 */
+async function uploadLocal(local) {
+  if (!local) return 0;
+  const have = { daily: new Set(state.data.daily.map(r => r.date)), inbody: new Set(state.data.inbody.map(r => r.date)) };
+  let n = 0;
+  for (const [list, sheet] of [['daily', 'Daily'], ['inbody', 'InBody']]) {
+    for (const row of local[list] || []) {
+      if (!row.date || have[list].has(row.date)) continue;
+      const { updatedAt, ...r } = row;
+      await call({ action: 'upsert', sheet, row: r });
+      n++;
+    }
+  }
+  return n;
+}
+let pendingLocal = null;
+
 $$('#tabs button').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; render(); window.scrollTo(0, 0); });
+if (!state.cfg.api) pendingLocal = JSON.parse(JSON.stringify(state.data));
 readHashConfig();
+if (state.cfg.api) setHashConfig(); else pendingLocal = null;
 if (!state.cfg.api) state.role = 'coach';
 render();
-if (state.cfg.api) refresh();
+if (state.cfg.api) refresh().then(async () => {
+  if (!pendingLocal || state.error) return;
+  const local = pendingLocal; pendingLocal = null;
+  try { const n = await uploadLocal(local); if (n) { toast(`已補傳 ${n} 筆本機資料`); render(); } } catch (e) { /* banner shows error */ }
+});
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.cfg.api && !state.syncing) refresh();
 });
