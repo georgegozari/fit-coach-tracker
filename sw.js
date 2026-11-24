@@ -1,5 +1,5 @@
 // 網路優先，離線時用快取（確保更新後馬上看到新版本）
-const CACHE = 'fct-v2';
+const CACHE = 'fct-v3';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icons/icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
