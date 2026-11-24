@@ -577,7 +577,7 @@ function renderSettings(v) {
 
   v.innerHTML = `
     <div class="card">
-      <h2>連線</h2>
+      <h2>連線 <span class="hint" style="font-weight:normal">版本 11/24b</span></h2>
       <div class="full"><label>Apps Script 網址<input id="cfg-api" type="url" placeholder="貼上 /exec 網址，或整個分享連結" value="${esc(state.cfg.api || '')}"></label></div>
       <div class="full"><label>金鑰<input id="cfg-key" type="text" autocomplete="off" value="${esc(state.cfg.key || '')}"></label></div>
       <div class="row"><button class="btn" id="cfg-save">連線並同步</button></div>
