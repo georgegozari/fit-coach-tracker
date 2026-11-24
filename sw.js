@@ -1,5 +1,5 @@
 // 網路優先，離線時用快取（確保更新後馬上看到新版本）
-const CACHE = 'fct-v3';
+const CACHE = 'fct-v4';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icons/icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
@@ -10,7 +10,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r; })
+    fetch(e.request.url, { cache: 'no-cache' }).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r; })
       .catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
   );
 });
