@@ -14,7 +14,7 @@ const PRESET_COACH_KEY = '';
 const PRESET_TRAINEE_KEY = '';
 
 const SHEETS = {
-  Daily:   ['date', 'weight', 'rhr', 'steps', 'cardio', 'interval', 'note', 'updatedAt'],
+  Daily:   ['date', 'weight', 'rhr', 'steps', 'cardio', 'interval', 'note', 'updatedAt', 'jogSpeed', 'sprintSpeed'],
   Targets: ['from', 'kcal', 'carb', 'protein', 'fat', 'steps', 'cardioWeek', 'intervalWeek', 'note'],
   InBody:  ['date', 'weight', 'smm', 'fatMass', 'pbf', 'visceral', 'bmr', 'score', 'waist', 'note'],
   Settings: ['key', 'value'],
@@ -215,12 +215,19 @@ function findRow_(sh, id) {
   return -1;
 }
 
+/** 新增欄位時自動補上標題列（新欄位一律加在最後，不影響舊資料） */
+function ensureHeader_(sh, cols) {
+  if (sh.getLastColumn() >= cols.length) return;
+  sh.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold');
+}
+
 function upsert_(name, row) {
   const cols = SHEETS[name];
   const id = row[cols[0]];
   if (id === undefined || id === null || id === '') throw new Error('缺少 ' + cols[0]);
   if (name === 'Daily') row.updatedAt = new Date().toISOString();
   const sh = sheet_(name);
+  ensureHeader_(sh, cols);
   const values = [cols.map(function (c) {
     const v = row[c];
     return v === undefined || v === null ? '' : v;

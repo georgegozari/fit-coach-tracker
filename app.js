@@ -11,7 +11,10 @@ const FIELDS = [
   { k: 'steps', label: '步數', unit: '步', step: 500, dec: 0, mode: 'numeric' },
   { k: 'cardio', label: '有氧', unit: '分', step: 5, dec: 0, mode: 'numeric', stepper: true },
   { k: 'interval', label: '間歇', unit: '分', step: 2, dec: 0, mode: 'numeric', stepper: true },
+  { k: 'jogSpeed', label: '跑步速度', unit: 'km/h・間歇 3 分鐘段', step: 0.5, dec: 1, mode: 'decimal', speed: true },
+  { k: 'sprintSpeed', label: '衝刺速度', unit: 'km/h・間歇 1 分鐘段', step: 0.5, dec: 1, mode: 'decimal', speed: true },
 ];
+const SPEED_KEYS = ['jogSpeed', 'sprintSpeed'];
 
 const INBODY_FIELDS = [
   { k: 'weight', label: '體重', unit: 'kg', lowerBetter: true },
@@ -97,6 +100,8 @@ function weekStats(monday) {
     stepsAvg: stepsArr.length ? sum(stepsArr) / stepsArr.length : null,
     cardio: sum(rows.map(r => num(r.cardio))),
     interval: sum(rows.map(r => num(r.interval))),
+    jogSpeed: avg(rows.map(r => num(r.jogSpeed))),
+    sprintSpeed: avg(rows.map(r => num(r.sprintSpeed))),
   };
 }
 
@@ -229,7 +234,7 @@ function renderToday(v) {
     const input = `<input id="f-${f.k}" type="text" inputmode="${f.mode}" value="${esc(val)}" placeholder="${ph}" autocomplete="off">`;
     return `<div class="field">
       <label>${f.label}<small>${f.unit}${f.k === 'weight' && lastW ? '・上次 ' + md(lastW.date) + ' ' + fmt(num(lastW.weight), 2) : ''}</small></label>
-      ${f.stepper ? `<div class="stepper"><button data-step="${f.k}" data-d="-${f.step}">−</button>${input}<button data-step="${f.k}" data-d="${f.step}">＋</button></div>` : input}
+      ${f.stepper || f.speed ? `<div class="stepper"><button data-step="${f.k}" data-d="-${f.step}">−</button>${input}<button data-step="${f.k}" data-d="${f.step}">＋</button></div>` : input}
     </div>`;
   }).join('');
 
@@ -242,7 +247,7 @@ function renderToday(v) {
   const dw = ws.weight !== null && prev.weight !== null ? ws.weight - prev.weight : null;
   const dots = ws.days.map((x, i) => {
     const r = ws.rows[i];
-    const n = FIELDS.filter(f => num(r[f.k]) !== null && !['cardio', 'interval'].includes(f.k)).length;
+    const n = FIELDS.filter(f => num(r[f.k]) !== null && !['cardio', 'interval', ...SPEED_KEYS].includes(f.k)).length;
     const cls = n >= 3 ? 'full' : n > 0 ? 'part' : '';
     return `<div>${wd(x)}<span class="${cls} ${x === todayStr() ? 'today' : ''}" data-go="${x}">${parse(x).getDate()}</span></div>`;
   }).join('');
@@ -278,7 +283,7 @@ function renderToday(v) {
   $$('[data-go]').forEach(el => el.onclick = () => { if (el.dataset.go <= todayStr()) { state.date = el.dataset.go; render(); } });
   $$('[data-step]').forEach(b => b.onclick = () => {
     const inp = $('#f-' + b.dataset.step);
-    inp.value = Math.max(0, (num(inp.value) || 0) + Number(b.dataset.d));
+    inp.value = Math.round(Math.max(0, (num(inp.value) || 0) + Number(b.dataset.d)) * 10) / 10;
   });
   $('#save').onclick = async () => {
     const row = { date: d };
@@ -288,6 +293,7 @@ function renderToday(v) {
       const n = Number(raw);
       if (!isFinite(n) || n < 0) { toast(f.label + ' 格式不對'); return; }
       if (f.k === 'weight' && (n < 20 || n > 300)) { toast('體重數字怪怪的，請再確認'); return; }
+      if (f.speed && n > 40) { toast(f.label + '數字怪怪的，請再確認（km/h）'); return; }
       row[f.k] = n;
     }
     const note = $('#f-note').value.trim();
@@ -310,6 +316,7 @@ function weekSummaryText(ws, prev) {
     `步數：總計 ${fmt(ws.stepsTotal)}，日均 ${fmt(ws.stepsAvg)}${t.steps ? `（目標 ${fmt(num(t.steps))}）` : ''}`,
     `有氧：${fmt(ws.cardio)}${t.cardioWeek ? ` / ${fmt(num(t.cardioWeek))}` : ''} 分${t.cardioWeek ? (ws.cardio >= t.cardioWeek ? ' ✅' : ' ⚠️') : ''}`,
     `間歇：${fmt(ws.interval)}${t.intervalWeek ? ` / ${fmt(num(t.intervalWeek))}` : ''} 分${t.intervalWeek ? (ws.interval >= t.intervalWeek ? ' ✅' : ' ⚠️') : ''}`,
+    ...(ws.jogSpeed !== null || ws.sprintSpeed !== null ? [`間歇平均速度：跑 ${fmt(ws.jogSpeed, 1)} / 衝刺 ${fmt(ws.sprintSpeed, 1)} km/h`] : []),
     `回報天數：${ws.logged} / 7`,
   ];
   const ib = state.data.inbody.filter(r => r.date >= ws.monday && r.date <= addDays(ws.monday, 6)).pop();
@@ -342,7 +349,7 @@ function renderWeek(v) {
       </summary>
       <div class="tbl-wrap"><table>
         <tr><th></th>${ws.days.map(x => `<th>${md(x)}<br>${wd(x)}</th>`).join('')}</tr>
-        ${rowsHtml('體重', 'weight', 2)}${rowsHtml('心率', 'rhr', 0)}${rowsHtml('步數', 'steps', 0)}${rowsHtml('有氧', 'cardio', 0)}${rowsHtml('間歇', 'interval', 0)}
+        ${rowsHtml('體重', 'weight', 2)}${rowsHtml('心率', 'rhr', 0)}${rowsHtml('步數', 'steps', 0)}${rowsHtml('有氧', 'cardio', 0)}${rowsHtml('間歇', 'interval', 0)}${rowsHtml('跑速', 'jogSpeed', 1)}${rowsHtml('衝刺', 'sprintSpeed', 1)}
       </table></div>
       ${ws.rows.filter(r => r.note).map(r => `<p class="hint">${md(r.date)}：${esc(r.note)}</p>`).join('')}
       <div style="margin-top:12px"><button class="btn secondary" data-copy="${mon}">複製週報（貼到 LINE）</button></div>
@@ -577,7 +584,7 @@ function renderSettings(v) {
 
   v.innerHTML = `
     <div class="card">
-      <h2>連線 <span class="hint" style="font-weight:normal">版本 11/24b</span></h2>
+      <h2>連線 <span class="hint" style="font-weight:normal">版本 11/27</span></h2>
       <div class="full"><label>Apps Script 網址<input id="cfg-api" type="url" placeholder="貼上 /exec 網址，或整個分享連結" value="${esc(state.cfg.api || '')}"></label></div>
       <div class="full"><label>金鑰<input id="cfg-key" type="text" autocomplete="off" value="${esc(state.cfg.key || '')}"></label></div>
       <div class="row"><button class="btn" id="cfg-save">連線並同步</button></div>
@@ -685,8 +692,8 @@ function renderSettings(v) {
 }
 
 function exportCSV() {
-  const cols = ['date', 'weight', 'rhr', 'steps', 'cardio', 'interval', 'note'];
-  const head = ['日期', '空腹體重', '安靜心率', '步數', '有氧', '間歇', '備註'];
+  const cols = ['date', 'weight', 'rhr', 'steps', 'cardio', 'interval', 'jogSpeed', 'sprintSpeed', 'note'];
+  const head = ['日期', '空腹體重', '安靜心率', '步數', '有氧', '間歇', '跑步速度', '衝刺速度', '備註'];
   const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const csv = '﻿' + [head.join(','), ...state.data.daily.map(r => cols.map(c => q(r[c])).join(','))].join('\n');
   const a = document.createElement('a');
